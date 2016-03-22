@@ -360,6 +360,12 @@ angular.module('ui.scroll', [])
               topPadding.height(0);
               viewport.scrollTop(viewport.scrollTop() - paddingHeight);
             }
+          },
+          resetTopPaddingHeight() {
+            topPadding.height(0);
+          },
+          resetBottomPaddingHeight() {
+            bottomPadding.height(0);
           }
         });
 
@@ -613,6 +619,9 @@ angular.module('ui.scroll', [])
 
           function reload() {
             dismissPendingRequests();
+
+            viewport.resetTopPaddingHeight();
+            viewport.resetBottomPaddingHeight();
 
             if (arguments.length) {
               buffer.clear(arguments[0]);

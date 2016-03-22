@@ -1,7 +1,7 @@
 /*!
  * angular-ui-scroll
  * https://github.com/angular-ui/ui-scroll.git
- * Version: 1.3.3 -- 2016-03-08T19:39:30.954Z
+ * Version: 1.3.3 -- 2016-03-11T21:07:06.923Z
  * License: MIT
  */
  
@@ -30,7 +30,7 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
       return this;
     }]
   };
-}).directive('uiScroll', ['$log', '$injector', '$rootScope', '$timeout', '$q', '$parse', '$interval', function (console, $injector, $rootScope, $timeout, $q, $parse, $interval) {
+}).directive('uiScroll', ['$log', '$injector', '$rootScope', '$timeout', '$q', '$parse', function (console, $injector, $rootScope, $timeout, $q, $parse) {
   var $animate = $injector.has && $injector.has('$animate') ? $injector.get('$animate') : null;
   var isAngularVersionLessThen1_3 = angular.version.major === 1 && angular.version.minor < 3;
   //const log = console.debug || console.log;
@@ -368,6 +368,12 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
           topPadding.height(0);
           viewport.scrollTop(viewport.scrollTop() - paddingHeight);
         }
+      },
+      resetTopPaddingHeight: function resetTopPaddingHeight() {
+        topPadding.height(0);
+      },
+      resetBottomPaddingHeight: function resetBottomPaddingHeight() {
+        bottomPadding.height(0);
       }
     });
 
@@ -379,13 +385,7 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
     var setTopVisible = $attr.topVisible ? $parse($attr.topVisible).assign : angular.noop;
     var setTopVisibleElement = $attr.topVisibleElement ? $parse($attr.topVisibleElement).assign : angular.noop;
     var setTopVisibleScope = $attr.topVisibleScope ? $parse($attr.topVisibleScope).assign : angular.noop;
-    var setIsLoading = $attr.isLoading ? setLoadingWithApply : angular.noop;
-
-    function setLoadingWithApply(viewportScope, value) {
-      return $timeout(function () {
-        $parse($attr.isLoading).assign(viewportScope, value);
-      });
-    }
+    var setIsLoading = $attr.isLoading ? $parse($attr.isLoading).assign : angular.noop;
 
     this.isLoading = false;
 
@@ -586,23 +586,17 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
 
       adapter.reload = reload;
 
-      var scrolling = false;
-      var scrollInterval = undefined;
-
       // events and bindings
-      viewport.bind('resize', resizeHandler);
-      viewport.bind('scroll', scrollHandler);
+      viewport.bind('resize', resizeAndScrollHandler);
+      viewport.bind('scroll', resizeAndScrollHandler);
       viewport.bind('mousewheel', wheelHandler);
 
       $scope.$on('$destroy', function () {
         // clear the buffer. It is necessary to remove the elements and $destroy the scopes
         buffer.clear();
-        viewport.unbind('resize', resizeHandler);
-        viewport.unbind('scroll', resizeHandler);
+        viewport.unbind('resize', resizeAndScrollHandler);
+        viewport.unbind('scroll', resizeAndScrollHandler);
         viewport.unbind('mousewheel', wheelHandler);
-        if (scrollInterval) {
-          scrollInterval.cancel();
-        }
       });
 
       // update events (deprecated since v1.1.0, unsupported since 1.2.0)
@@ -637,6 +631,9 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
 
       function reload() {
         dismissPendingRequests();
+
+        viewport.resetTopPaddingHeight();
+        viewport.resetBottomPaddingHeight();
 
         if (arguments.length) {
           buffer.clear(arguments[0]);
@@ -759,21 +756,18 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
       function adjustBuffer(rid) {
         // We need the item bindings to be processed before we can do adjustment
         return $timeout(function () {
-          return adjustBufferWithoutTimeout(rid);
+          processBufferedItems(rid);
+
+          if (viewport.shouldLoadBottom()) {
+            enqueueFetch(rid, true);
+          } else if (viewport.shouldLoadTop()) {
+            enqueueFetch(rid, false);
+          }
+
+          if (!pending.length) {
+            return adapter.calculateProperties();
+          }
         });
-      }
-
-      function adjustBufferWithoutTimeout(rid) {
-        processBufferedItems(rid);
-        if (viewport.shouldLoadBottom()) {
-          enqueueFetch(rid, true);
-        } else if (viewport.shouldLoadTop()) {
-          enqueueFetch(rid, false);
-        }
-
-        if (!pending.length) {
-          return adapter.calculateProperties();
-        }
       }
 
       function adjustBufferAfterFetch(rid) {
@@ -857,20 +851,9 @@ angular.module('ui.scroll', []).directive('uiScrollViewport', function () {
         });
       }
 
-      function scrollHandler() {
-        scrolling = true;
-      }
-
-      scrollInterval = $interval(function () {
-        if (scrolling && !adapter.isLoading) {
-          scrolling = false;
-          adjustBufferWithoutTimeout();
-        }
-      }, 100, 0, false);
-
-      function resizeHandler() {
+      function resizeAndScrollHandler() {
         if (!$rootScope.$$phase && !adapter.isLoading) {
-          adjustBufferWithoutTimeout();
+          adjustBuffer();
         }
       }
 
