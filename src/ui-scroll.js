@@ -30,8 +30,7 @@ angular.module('ui.scroll', [])
     '$timeout',
     '$q',
     '$parse',
-    '$interval',
-    function (console, $injector, $rootScope, $timeout, $q, $parse, $interval) {
+    function (console, $injector, $rootScope, $timeout, $q, $parse) {
       const $animate = ($injector.has && $injector.has('$animate')) ? $injector.get('$animate') : null;
       const isAngularVersionLessThen1_3 = angular.version.major === 1 && angular.version.minor < 3;
       //const log = console.debug || console.log;
@@ -248,8 +247,7 @@ angular.module('ui.scroll', [])
 
           bottomDataPos() {
             let scrollHeight = viewport[0].scrollHeight;
-            scrollHeight = scrollHeight !== null ? scrollHeight : viewport[0].document.documentElement.scrollHeight;
-
+            scrollHeight = scrollHeight != null ? scrollHeight : viewport[0].document.documentElement.scrollHeight;
             return scrollHeight - bottomPadding.height();
           },
 
@@ -377,13 +375,7 @@ angular.module('ui.scroll', [])
         const setTopVisible = $attr.topVisible ? $parse($attr.topVisible).assign : angular.noop;
         const setTopVisibleElement = $attr.topVisibleElement ? $parse($attr.topVisibleElement).assign : angular.noop;
         const setTopVisibleScope = $attr.topVisibleScope ? $parse($attr.topVisibleScope).assign : angular.noop;
-        const setIsLoading = $attr.isLoading ? setLoadingWithApply : angular.noop;
-
-        function setLoadingWithApply(viewportScope, value) {
-          return $timeout(() => {
-            $parse($attr.isLoading).assign(viewportScope, value);
-          });
-        }
+        const setIsLoading = $attr.isLoading ? $parse($attr.isLoading).assign : angular.noop;
 
         this.isLoading = false;
 
@@ -470,6 +462,7 @@ angular.module('ui.scroll', [])
                 setTopVisibleScope(viewportScope, item.scope);
               }
               break;
+
             }
           }
         };
@@ -574,23 +567,23 @@ angular.module('ui.scroll', [])
 
           adapter.reload = reload;
 
-          let scrolling = false;
-          let scrollInterval;
-
           // events and bindings
-          viewport.bind('resize', resizeHandler);
-          viewport.bind('scroll', scrollHandler);
+          function bindEvents() {
+            viewport.bind('resize', resizeAndScrollHandler);
+            viewport.bind('scroll', resizeAndScrollHandler);
+          }
           viewport.bind('mousewheel', wheelHandler);
+
+          function unbindEvents() {
+            viewport.unbind('resize', resizeAndScrollHandler);
+            viewport.unbind('scroll', resizeAndScrollHandler);
+          }
 
           $scope.$on('$destroy', () => {
             // clear the buffer. It is necessary to remove the elements and $destroy the scopes
             buffer.clear();
-            viewport.unbind('resize', resizeHandler);
-            viewport.unbind('scroll', resizeHandler);
+            unbindEvents();
             viewport.unbind('mousewheel', wheelHandler);
-            if(scrollInterval) {
-              scrollInterval.cancel();
-            }
           });
 
           // update events (deprecated since v1.1.0, unsupported since 1.2.0)
@@ -622,6 +615,10 @@ angular.module('ui.scroll', [])
 
             viewport.resetTopPaddingHeight();
             viewport.resetBottomPaddingHeight();
+
+            adapter.abCount = 0;
+            adapter.abfCount = 0;
+            adapter.sCount = 0;
 
             if (arguments.length) {
               buffer.clear(arguments[0]);
@@ -738,28 +735,25 @@ angular.module('ui.scroll', [])
           function adjustBuffer(rid) {
             // We need the item bindings to be processed before we can do adjustment
             return $timeout(() => {
-              return adjustBufferWithoutTimeout(rid);
+              adapter.abCount++;
+              processBufferedItems(rid);
+
+              if (viewport.shouldLoadBottom()) {
+                enqueueFetch(rid, true);
+              } else if (viewport.shouldLoadTop()) {
+                enqueueFetch(rid, false);
+              }
+
+              if (!pending.length) {
+                return adapter.calculateProperties();
+              }
             });
-
-
-          }
-
-          function adjustBufferWithoutTimeout(rid) {
-            processBufferedItems(rid);
-            if (viewport.shouldLoadBottom()) {
-              enqueueFetch(rid, true);
-            } else if (viewport.shouldLoadTop()) {
-              enqueueFetch(rid, false);
-            }
-
-            if (!pending.length) {
-              return adapter.calculateProperties();
-            }
           }
 
           function adjustBufferAfterFetch(rid) {
             // We need the item bindings to be processed before we can do adjustment
             return $timeout(() => {
+              adapter.abfCount++;
               let keepFetching = processBufferedItems(rid);
 
               if (viewport.shouldLoadBottom() && keepFetching) {
@@ -775,6 +769,7 @@ angular.module('ui.scroll', [])
 
               if (!pending.length) {
                 adapter.loading(false);
+                bindEvents();
                 return adapter.calculateProperties();
               }
 
@@ -837,20 +832,18 @@ angular.module('ui.scroll', [])
             });
           }
 
-          function scrollHandler() {
-            scrolling = true;
-          }
-
-          scrollInterval = $interval(function() {
-            if(scrolling && !adapter.isLoading) {
-              scrolling = false;
-              adjustBufferWithoutTimeout();
-            }
-          }, 100, 0, false);
-
-          function resizeHandler() {
+          function resizeAndScrollHandler() {
             if (!$rootScope.$$phase && !adapter.isLoading) {
-              adjustBufferWithoutTimeout();
+              adapter.sCount++;
+              if (viewport.shouldLoadBottom()) {
+                enqueueFetch(ridActual, true);
+              } else if (viewport.shouldLoadTop()) {
+                enqueueFetch(ridActual, false);
+              }
+
+              if (pending.length) {
+                unbindEvents();
+              }
             }
           }
 
